@@ -1,4 +1,4 @@
 SiMpVC
 ======
 
-A simple front end MVC framework using jQuery
+A Simple front end MVC framework using jQuery
