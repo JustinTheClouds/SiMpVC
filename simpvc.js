@@ -46,6 +46,16 @@ var SiMpVC = {
 		}
 	},
 	/**
+	 * Default element to load the controller view into
+	 *
+	 * This can be overwritten on a controller basis by defining the
+	 * SiMpVC.loadInto property.
+	 *
+	 * This value must a valid jquery selector
+	 *
+	 */
+	defaultLoadInto: 'body',
+	/**
 	 * Current controller name
 	 */
 	currentController: null,
@@ -53,6 +63,10 @@ var SiMpVC = {
 	 * Current controller object
 	 */
 	controller: null,
+	/**
+	 * Global methods shared across all controllers
+	 */
+	controllerMethods: {},
 	/** 
 	 * Load Controller callback
 	 *
@@ -65,6 +79,10 @@ var SiMpVC = {
 	 * Current model object
 	 */
 	model: null,
+	/**
+	 * Global methods shared across all controllers
+	 */
+	modelMethods: {},
 	/**
 	 * Current view before template vars are parsed
 	 */
@@ -144,6 +162,11 @@ var SiMpVC = {
 	
 	loadController: function (controllerName, callback) {
 		
+		// Make sure we have a controller to laod
+		if(typeof controllerName != 'string') {
+			SiMpVC.log('A controller name must be defined as the first parameter', 'undefined controllerName', 'error');	
+		}
+		
 		SiMpVC.log('Load controller ' + controllerName);
 		
 		// Set the current controller
@@ -201,7 +224,7 @@ var SiMpVC = {
 		// Rewrite / to _ to allow sub dirs
 		name = name.replace('/', '_');
 		
-		if(typeof SiMpVC.views[name] != 'undefined') {
+		if(false && typeof SiMpVC.views[name] != 'undefined') {
 						
 			SiMpVC.log('Loading cached view ' + url);
 
@@ -217,10 +240,11 @@ var SiMpVC = {
 			// Get the view
 			return $.ajax({
 				url: 'views/'+url+'.html',
+				cache: !SiMpVC.debug
 			}).done(function(data, textStatus, jqXHR) {
 
 				// Prepare the view
-				var ret = SiMpVC.views[name] = _.template(data);
+				var ret = SiMpVC.views[name] = SiMpVC.template(data);
 				// If this is the current controller, then store as the current view
 				if(SiMpVC.currentController == name) SiMpVC.view = ret;
 				// Fire callback with view
@@ -229,6 +253,7 @@ var SiMpVC = {
 			}).fail(function(jqXHR, textStatus, errorThrown) {
 
 				// View was not found
+				SiMpVC.log('The ' + name + ' view does not exist', 'Error: undefined view', 'error');
 				if(typeof fail == 'function') fail(jqXHR, textStatus, errorThrown);
 
 			}).always(function(data, textStatus, jqXHR) {
@@ -278,7 +303,7 @@ var SiMpVC = {
 	
 	displayViewAnimation: function(view, callback) {
 		// Append the rendered view
-		$('body').fadeOut(function() {
+		$(SiMpVC.controller.loadInto).fadeOut(function() {
 			$(this).empty().append( view ).fadeIn(function() {
 				callback();
 			});
@@ -288,6 +313,7 @@ var SiMpVC = {
 	createController: function(name, props) {
 		
 		var defaults = {
+			loadInto: SiMpVC.defaultLoadInto,
 			init: function() {
 				SiMpVC.renderView();
 				SiMpVC.displayView();				
@@ -296,25 +322,21 @@ var SiMpVC = {
 			 * Use this hook to modify the DOM after temmplate vars have been parsed
 			 * but before it has been shown to the user
 			 */
-			afterRender: function(renderedView) {
-				
-			},
+			afterRender: function(renderedView) {},
 			/**
 			 * Use this to modify the DOM after it has been displayed to the user
 			 */
-			afterDisplay: function(displayedView) {
-				
-			}
+			afterDisplay: function(displayedView) {}
 		};
 		
-		$.extend(defaults, props);
+		$.extend(defaults, SiMpVC.controllerMethods, props);
 		
 		return window[name+'Controller'] = defaults;
 	},
 	
 	getController: function(name, always) {
 
-		if(typeof SiMpVC.controllers[name] != 'undefined') {
+		if(false && typeof SiMpVC.controllers[name] != 'undefined') {
 						
 			SiMpVC.log('Loading cached controller ' + name);
 			
@@ -329,7 +351,8 @@ var SiMpVC = {
 			
 			return $.ajax({
 				url: 'controllers/'+name+'.js',
-				dataType: 'script'
+				dataType: 'script',
+				cache: !SiMpVC.debug
 			}).done(function(e) {	
 				console.log('controller done');
 				
@@ -374,14 +397,14 @@ var SiMpVC = {
 			}
 		};
 		
-		$.extend(defaults, props);
+		$.extend(defaults, SiMpVC.modelMethods, props);
 		
 		return window[name+'Model'] = defaults;
 	},
 
 	getModel: function(name, always) {
 
-		if(typeof SiMpVC.models[name] != 'undefined') {
+		if(false && typeof SiMpVC.models[name] != 'undefined') {
 						
 			SiMpVC.log('Loading cached model ' + name);
 
@@ -397,7 +420,8 @@ var SiMpVC = {
 			
 			return $.ajax({
 				url: 'models/'+name+'.js',
-				dataType: 'script'				
+				dataType: 'script',			
+				cache: !SiMpVC.debug
 			}).always(function(e) {
 
 				// Cache the loaded controller if its defined, otherwise create a default controller	
@@ -492,6 +516,7 @@ var SiMpVC = {
 			var args = Array.prototype.slice.call(arguments, 0);
 			var callback = args.pop();
 			var all = [];
+			console.log(args);
 			if(typeof callback == 'function') {
 				$.each(args, function(index, def) {
 					def.always(function() {
@@ -507,7 +532,95 @@ var SiMpVC = {
 				});
 			}
 		}
-	}
+	},
+	
+	// JavaScript micro-templating, similar to John Resig's implementation.
+	// Underscore templating handles arbitrary delimiters, preserves whitespace,
+	// and correctly escapes quotes within interpolated code.
+	template: function(text, data, settings) {
+
+		// By default, Underscore uses ERB-style template delimiters, change the
+		// following template settings to use alternative delimiters.
+		var templateSettings = {
+			evaluate    : /<%([\s\S]+?)%>/g,
+			interpolate : /<%=([\s\S]+?)%>/g,
+			escape      : /<%-([\s\S]+?)%>/g
+		};
+		
+		// When customizing `templateSettings`, if you don't want to define an
+		// interpolation, evaluation or escaping regex, we need one that is
+		// guaranteed not to match.
+		var noMatch = /(.)^/;
+		
+		// Certain characters need to be escaped so that they can be put into a
+		// string literal.
+		var escapes = {
+			"'":      "'",
+			'\\':     '\\',
+			'\r':     'r',
+			'\n':     'n',
+			'\t':     't',
+			'\u2028': 'u2028',
+			'\u2029': 'u2029'
+		}
+		
+		var escaper = /\\|'|\r|\n|\t|\u2028|\u2029/g;
+
+		var render;
+		settings = $.extend(true, settings, templateSettings);
+		
+		// Combine delimiters into one regular expression via alternation.
+		var matcher = new RegExp([
+			(settings.escape || noMatch).source,
+			(settings.interpolate || noMatch).source,
+			(settings.evaluate || noMatch).source
+		].join('|') + '|$', 'g');
+		
+		// Compile the template source, escaping string literals appropriately.
+		var index = 0;
+		var source = "__p+='";
+		text.replace(matcher, function(match, escape, interpolate, evaluate, offset) {
+			source += text.slice(index, offset)
+				.replace(escaper, function(match) { return '\\' + escapes[match]; });
+			
+			if (escape) {
+				source += "'+\n((__t=(" + escape + "))==null?'':_.escape(__t))+\n'";
+			}
+			if (interpolate) {
+				source += "'+\n((__t=(" + interpolate + "))==null?'':__t)+\n'";
+			}
+			if (evaluate) {
+				source += "';\n" + evaluate + "\n__p+='";
+			}
+			index = offset + match.length;
+			return match;
+		});
+		source += "';\n";
+		
+		// If a variable is not specified, place data values in local scope.
+		if (!settings.variable) source = 'with(obj||{}){\n' + source + '}\n';
+		
+		source = "var __t,__p='',__j=Array.prototype.join," +
+			"print=function(){__p+=__j.call(arguments,'');};\n" +
+			source + "return __p;\n";
+		
+		try {
+			render = new Function(settings.variable || 'obj', '_', source);
+		} catch (e) {
+			e.source = source;
+			throw e;
+		}
+		
+		if (data) return render(data, _);
+		var template = function(data) {
+			return render.call(this, data);
+		};
+		
+		// Provide the compiled function source as a convenience for precompilation.
+		template.source = 'function(' + (settings.variable || 'obj') + '){\n' + source + '}';
+		
+		return template;
+	},
 	
 	
 };
