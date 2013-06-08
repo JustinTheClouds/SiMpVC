@@ -139,7 +139,7 @@ var SiMpVC = {
 			if(actionName.indexOf('_') != -1) {
 				var actionSplit = actionName.split('_');
 				actionName = actionSplit[0];
-				data.id = actionSplit[1];
+				data.key = actionSplit[1];
 			}
 			
 			SiMpVC.log(data, 'Action name - ' + actionName);
@@ -461,14 +461,10 @@ var SiMpVC = {
 	/**
 	 * Gets a value from the current model or the specified model
 	 *
-	 * If name is === null, the whole var object for the model will be returned
+	 * If name is === null or undefined, the whole var object for the model will be returned
 	 */ 
 	get: function(name, model) {
-		if(typeof name == 'undefined') {
-			SiMpVC.log('The name of the value being requested must be defined', 'undefined "name" param', 'error');
-			return;
-		}
-		if(name === null) {
+		if(name === null || typeof name === 'undefined') {
 			var ret = SiMpVC.model.vars;
 		} else if(typeof model == 'undefined') {
 			var ret = SiMpVC.model.vars[name];
@@ -534,18 +530,17 @@ var SiMpVC = {
 		}
 	},
 	
+	// By default, Underscore uses ERB-style template delimiters, change the
+	// following template settings to use alternative delimiters.
+	templateSettings: {
+		evaluate    : /<%([\s\S]+?)%>/g,
+		interpolate : /<%=([\s\S]+?)%>/g,
+		escape      : /<%-([\s\S]+?)%>/g
+	},
 	// JavaScript micro-templating, similar to John Resig's implementation.
 	// Underscore templating handles arbitrary delimiters, preserves whitespace,
 	// and correctly escapes quotes within interpolated code.
 	template: function(text, data, settings) {
-
-		// By default, Underscore uses ERB-style template delimiters, change the
-		// following template settings to use alternative delimiters.
-		var templateSettings = {
-			evaluate    : /<%([\s\S]+?)%>/g,
-			interpolate : /<%=([\s\S]+?)%>/g,
-			escape      : /<%-([\s\S]+?)%>/g
-		};
 		
 		// When customizing `templateSettings`, if you don't want to define an
 		// interpolation, evaluation or escaping regex, we need one that is
@@ -567,7 +562,7 @@ var SiMpVC = {
 		var escaper = /\\|'|\r|\n|\t|\u2028|\u2029/g;
 
 		var render;
-		settings = $.extend(true, settings, templateSettings);
+		settings = $.extend(true, settings, SiMpVC.templateSettings);
 		
 		// Combine delimiters into one regular expression via alternation.
 		var matcher = new RegExp([
