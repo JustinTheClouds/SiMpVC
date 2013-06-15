@@ -67,14 +67,6 @@ var SiMpVC = {
 	 * Global methods shared across all controllers
 	 */
 	controllerMethods: {},
-	/** 
-	 * Load Controller callback
-	 *
-	 * This can be defined when calling SiMpVC.loadController()
-	 * and passing the callback as the second parameter. If the callback
-	 * is defined, it will be called immediately after the view is displayed
-	 */
-	controllerCallback: null,
 	/**
 	 * Current model object
 	 */
@@ -200,17 +192,13 @@ var SiMpVC = {
 		
 		// Make sure we have a controller to laod
 		if(typeof controllerName != 'string') {
-			SiMpVC.log('A controller name must be defined as the first parameter', 'undefined controllerName', 'error');	
+			SiMpVC.log('A controller name must be defined as the first parameter or opts.name', 'undefined controllerName', 'error');
+			return;	
 		}
-		
-		SiMpVC.log('Load controller ' + controllerName);
-		
+				
 		// Set the current controller
 		SiMpVC.currentController = controllerName;
 
-		// Set controllerCallback function if exits
-		if(typeof callback != 'undefined') SiMpVC.controllerCallback = callback;
-		
 		// Load the model, view and controllers objects, once completed, execute the model init method
 		SiMpVC.whenCompleted(SiMpVC.getModel(controllerName), SiMpVC.getController(controllerName), SiMpVC.getView(controllerName), function() {
 						
@@ -227,29 +215,108 @@ var SiMpVC = {
 				
 				// If a controller init method returns false, then cancel controller rendering
 				if(SiMpVC.controller.init(SiMpVC.controller) === false) return;
+				
+				// Grab the controller object and extend it with any additional options passed in
+				var controller = $.extend({}, SiMpVC.controller, opts);
+				
+				//controller.view = SiMpVC.view;
+				//controller.model = SiMpVC.model;
+				//controller.rendered = SiMpVC.renderView(controller);
+				console.log(controller);
 
 				// Display the view
-				SiMpVC.displayView({
-					isController: true,
-					view: SiMpVC.renderView(SiMpVC.view, SiMpVC.get()),
-					loadInto: opts.loadInto ? opts.loadInto : SiMpVC.defaultLoadInto,
-					renewView: opts.renewView ? true : false,
-					callback: callback
-				});
-				
+				SiMpVC.getTemplate(controller);
+								
 			});
 		});
 	
 	},
+		
+	createController: function(name, props) {
+		
+		var defaults = {
+			name: name,
+			loadInto: SiMpVC.defaultLoadInto,
+			init: function() {},
+			/**
+			 * Use this hook to modify the DOM after temmplate vars have been parsed
+			 * but before it has been shown to the user
+			 */
+			afterRender: function(renderedView) {},
+			/**
+			 * Use this to modify the DOM after it has been displayed to the user
+			 */
+			afterDisplay: function(displayedView) {},
+		};
+		
+		$.extend(defaults, SiMpVC.controllerMethods, props);
+		
+		return SiMpVC.controllers[name] = defaults;
+	},
 	
-	getView: function(name, loadInto, vars, callback) {
+	getController: function(name) {
+		
+		if(typeof SiMpVC.controllers[name] != 'undefined') return SiMpVC.controller = SiMpVC.controllers[name];
+		
+		return $.ajax({
+			url: 'controllers/'+name+'.js',
+			dataType: 'script',
+			cache: !SiMpVC.debug // Disable caching if ind ebug mode
+		}).always(function() {
+		
+			// If this is the current loaded controller, then store as the current controller
+			if(SiMpVC.currentController == name) SiMpVC.controller = SiMpVC.controllers[name];
+								
+		});
+					
+	},
+
+	createModel: function(name, props) {
+		
+		var defaults = {
+			name: name,
+			/**
+			 * Template vars used in parsing the view
+			 */
+			vars: {},
+			init: function() {
+				SiMpVC.models[name].initialized = true;
+			}
+		};
+		
+		$.extend(defaults, SiMpVC.modelMethods, props);
+		
+		return SiMpVC.models[name] = defaults;
+	},
+
+	getModel: function(name) {
+		
+		if(typeof SiMpVC.models[name] != 'undefined') return SiMpVC.model = SiMpVC.models[name];
+		
+		return $.ajax({
+			url: 'models/'+name+'.js',
+			dataType: 'script',			
+			cache: !SiMpVC.debug
+		}).always(function(e) {
+
+			// Cache the loaded controller if its defined, otherwise create a default controller	
+			SiMpVC.models[name] = ( typeof SiMpVC.models[name] != 'undefined' ? SiMpVC.models[name] : SiMpVC.createModel(name) );
+
+			// If this is the current loaded controller, then store as the current model
+			if(SiMpVC.currentController == name) SiMpVC.model = SiMpVC.models[name];
+
+		});
+			
+	},	
+	
+	getView: function(name) {
+
+		if(typeof SiMpVC.views[name] != 'undefined') return SiMpVC.view = SiMpVC.views[name];
 		
 		// Store the url to request
 		var url = name;
 		// Rewrite / to _ to allow sub dirs
 		name = name.replace('/', '_');
-		
-		SiMpVC.log('Loading view ' + url);
 		
 		// Get the view
 		return $.ajax({
@@ -268,13 +335,6 @@ var SiMpVC = {
 			// Otherwise we are just loading a view 
 			// so we should render it and display it
 			} else {
-
-				SiMpVC.displayView({
-					isController: false,
-					view: SiMpVC.renderView(ret, vars),
-					loadInto: loadInto,
-					callback: callback
-				});
 			}
 			
 		}).fail(function(jqXHR, textStatus, errorThrown) {
@@ -282,41 +342,75 @@ var SiMpVC = {
 			// View was not found
 			SiMpVC.log('The ' + name + ' view does not exist', 'Error: undefined view', 'error');
 			if(typeof fail == 'function') fail(jqXHR, textStatus, errorThrown);
-
-		}).always(function(data, textStatus, jqXHR) {
-
-			if(typeof always == 'function') always(data, textStatus, jqXHR);
+			
 		});
 	},
 	
-	renderView: function (view, vars) {
+	getTemplate: function(opts) {
+		
+		SiMpVC.whenCompleted(SiMpVC.getView(opts.name), function() {
+			
+			var view = SiMpVC.views[opts.name];
+			var vars = opts.vars ? opts.vars : {};
+			
+			// Render the template
+			opts.rendered = $('<div class="' + opts.name + '-rendered-wrap" />').html(view(vars));
+			
+			// Call afterRender hook if is controller view
+			if(typeof opts.afterRender == 'function') opts.afterRender(opts.rendered);
+			
+			// Setup after completed callback
+			opts.completed = function() {
+
+				// Setup triggers
+				SiMpVC.controllerTrigger();
+				
+				// Call after display method
+				if(typeof opts.afterDisplay == 'function') opts.afterDisplay(opts.rendered);
+				
+			};
+			
+			// Display animation
+			SiMpVC.displayViewAnimation(opts);
+			
+			/*
+			SiMpVC.displayView({
+				view: SiMpVC.views[opts.name],
+				rendered: SiMpVC.renderView(opts),
+				vars: opts.vars ? opts.vars : {},
+				loadInto: opts.loadInto,
+				_completed: function() {
+					// Setup triggers
+					SiMpVC.controllerTrigger();
+				}
+			});
+			*/
+			
+		});
+		
+	},
 	
-		var isController = typeof view == 'undefined';
-		var view = (typeof view != 'undefined' ? view : SiMpVC.view);
-		var vars = (typeof vars != 'undefined' ? vars : SiMpVC.model.vars);
-		
-		if(isController) SiMpVC.log('Rendering view for ' + SiMpVC.currentController + ' controller');
-		
+	renderView: function (opts) {
+
 		// Render the view and store it temporarilly for display
-		SiMpVC.renderedView = $('<div class="' + SiMpVC.currentController + '-rendered-wrap" />').html(view(vars));
+		var rendered = $('<div class="' + opts.name + '-rendered-wrap" />').html(controller.view(controller.vars));
 		
 		// Call afterRender hook if is controller
-		if(isController) SiMpVC.controller.afterRender(SiMpVC.renderedView);
+		controller.afterRender(rendered);
 		
 		// Return the rendered view
-		return SiMpVC.renderedView;
+		return rendered;
 		
 	},
 
-	displayView: function (opts) {
+	displayView: function (controller) {
 
-		var view = (typeof opts.view != 'undefined' ? opts.view : SiMpVC.renderedView);
-		var loadInto = (typeof opts.loadInto != 'undefined' ? opts.loadInto : SiMpVC.controller.loadInto);
+		//var view = (typeof opts.view != 'undefined' ? opts.view : SiMpVC.renderedView);
+		//var loadInto = (typeof opts.loadInto != 'undefined' ? opts.loadInto : SiMpVC.controller.loadInto);
 		
-		if(opts.isController) {
+		//if(opts.isController) {
 			
-			SiMpVC.log('Displaying view for ' + SiMpVC.currentController + ' controller');
-			
+			/* TODO - view states
 			// If not renewing view state and previous view state exists, load previous
 			if(!opts.renewView && typeof SiMpVC.viewStates[SiMpVC.currentController] != 'undefined') {
 				view = SiMpVC.viewStates[SiMpVC.currentController];
@@ -328,8 +422,13 @@ var SiMpVC = {
 				console.log('cache state');
 				console.log(view);
 			}
-		}
+			*/
+			
+		//}
 		
+		SiMpVC.displayViewAnimation(controller);
+		
+		/*
 		SiMpVC.displayViewAnimation({
 			view: view,
 			loadInto: loadInto,
@@ -345,6 +444,7 @@ var SiMpVC = {
 				if(typeof opts.callback == 'function') opts.callback(SiMpVC.controller);
 			}
 		});
+		*/
 	},
 	
 	/**
@@ -367,109 +467,16 @@ var SiMpVC = {
 	 *     into the callback as a parameter
 	 */
 	displayViewAnimation: function(opts) {
-
-		// Make sure we have a view
-		if(typeof opts.view == 'undefined') {
-			SiMpVC.log('Undefined view property', 'view property required', 'error');
-			return;
-		}
-		
-		// If we dont have a loadInto prop, use default
-		if(typeof opts.loadInto == 'undefined') opts.loadInto = SiMpVC.defaultLoadInto;
-		
+		console.log(opts.loadInto);
 		// Append the rendered view
 		$(opts.loadInto).fadeOut(function() {
-			$(this).empty().append( opts.view ).fadeIn(function() {
-				// Execute callback if defined
-				if(typeof opts.complete != 'undefined') opts.complete( opts.view );
+			$(this).empty().append( opts.rendered ).fadeIn(function() {
+				// Execute completed callback
+				opts.completed();
 			});
 		});
+		
 	},
-		
-	createController: function(name, props) {
-		
-		var defaults = {
-			loadInto: SiMpVC.defaultLoadInto,
-			init: function() {},
-			/**
-			 * Use this hook to modify the DOM after temmplate vars have been parsed
-			 * but before it has been shown to the user
-			 */
-			afterRender: function(renderedView) {},
-			/**
-			 * Use this to modify the DOM after it has been displayed to the user
-			 */
-			afterDisplay: function(displayedView) {}
-		};
-		
-		$.extend(defaults, SiMpVC.controllerMethods, props);
-		
-		return window[name+'Controller'] = defaults;
-	},
-	
-	getController: function(name, always) {
-		
-		SiMpVC.log('Loading controller ' + name);
-		
-		return $.ajax({
-			url: 'controllers/'+name+'.js',
-			dataType: 'script',
-			cache: !SiMpVC.debug
-		}).always(function(e) {
-		
-			// Cache the loaded controller if its defined, otherwise create a default controller	
-			SiMpVC.controllers[name] = ( typeof window[name + 'Controller'] === 'object' ) ? window[name + 'Controller'] : SiMpVC.createController(name); 
-				
-			// If this is the current loaded controller, then store as the current controller
-			if(SiMpVC.currentController == name) SiMpVC.controller = SiMpVC.controllers[name];
-
-			// Execut callback
-			if(typeof always != 'undefined') always(SiMpVC.controllers[name]);	
-								
-		});
-					
-	},
-
-	createModel: function(name, props) {
-		
-		var defaults = {
-			/**
-			 * Defines if the model has been initialized yet
-			 */ 
-			initialized: false,
-			/**
-			 * Template vars used in parsing the view
-			 */
-			vars: {},
-			init: function() {
-				SiMpVC.models[name].initialized = true;
-			}
-		};
-		
-		$.extend(defaults, SiMpVC.modelMethods, props);
-		
-		return window[name+'Model'] = defaults;
-	},
-
-	getModel: function(name, callback) {
-		
-		SiMpVC.log('Loading model ' + name);
-		
-		return $.ajax({
-			url: 'models/'+name+'.js',
-			dataType: 'script',			
-			cache: !SiMpVC.debug
-		}).always(function(e) {
-
-			// Cache the loaded controller if its defined, otherwise create a default controller	
-			SiMpVC.models[name] = ( typeof window[name + 'Model'] === 'object' ) ? window[name + 'Model'] : SiMpVC.createModel(name); 
-
-			// If this is the current loaded controller, then store as the current model
-			if(SiMpVC.currentController == name) SiMpVC.model = SiMpVC.models[name];
-
-		});
-			
-	},	
 	/**
 	 * Sets a value on the current model
 	 *
