@@ -217,7 +217,9 @@ var SiMpVC = {
 				if(SiMpVC.controller.init(SiMpVC.controller) === false) return;
 				
 				// Grab the controller object and extend it with any additional options passed in
-				var controller = $.extend({}, SiMpVC.controller, opts);
+				var controller = $.extend({
+					vars: SiMpVC.get()
+				}, SiMpVC.controller, opts);
 				
 				//controller.view = SiMpVC.view;
 				//controller.model = SiMpVC.model;
