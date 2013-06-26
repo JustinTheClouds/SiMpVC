@@ -135,8 +135,8 @@ var SiMpVC = {
 		// Unbind any previous clicks before binding again
 		$(document).unbind('click').on('click', '.trigger', function(e) {
 								
-			e.preventDefault();
-			e.stopPropagation();
+			//e.preventDefault();
+			//e.stopPropagation();
 			
 			// Make sure we have an action to handle
 			if(!$(this).is('[data-action]') || !$(this).data('action')) {
